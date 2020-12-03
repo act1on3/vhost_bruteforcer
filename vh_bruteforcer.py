@@ -12,6 +12,8 @@ from multiprocessing import Pool
 import logging
 import signal
 
+urllib3.disable_warnings()
+
 # Default values
 ok_string = ''
 protocol = 'https'
@@ -65,8 +67,7 @@ def check_connection(ip):
 
 
 def prescan(ip_range):
-    global prescan_results
-    logging.warn(colored('Starting prescan for {} ip addresses'.format(len(ip_range)), 'green'))
+    logging.warning(colored('Starting prescan for {} ip addresses'.format(len(ip_range)), 'green'))
 
     valid_ips = []
     try:
@@ -75,19 +76,21 @@ def prescan(ip_range):
             if status:
                 prescan_results[str(ip)] = response_length
                 valid_ips.append(str(ip))
-                logging.warn(colored('[prescan found] ip: {}'.format(ip), 'green'))
+                logging.warning(colored('[prescan found] ip: {}'.format(ip), 'green'))
             else:
                 logging.info(colored('[prescan failed] ip: {}'.format(ip), 'red'))
     except KeyboardInterrupt:
         print('Terminated by keyboard')
         exit(1)
 
-    logging.warn(colored('Prescan finished, found {} valid servers'.format(len(valid_ips)), 'green'))
+    logging.warning(colored('Prescan finished, found {} valid servers'.format(len(valid_ips)), 'green'))
+
     return valid_ips
 
 
 def pack_scan_arguments(args):
     ip_range = get_ips(args)
+
     if args.prescan:
         ip_range = prescan(ip_range)
 
@@ -98,7 +101,7 @@ def pack_scan_arguments(args):
     scan_args = []
     for ip in ip_range:
         for host in hosts:
-            scan_args.append((ip, host))
+            scan_args.append((ip, host, prescan_results))
     return scan_args
 
 
@@ -115,24 +118,24 @@ def start_scan(scan_args):
 
 
 def check_ip(args):
-    (ip, host) = args
+    (ip, host, prescan_results) = args
     try:
         request_url = protocol + '://' + str(ip) + path
         request_headers = {'Host': host}
         response = requests.get(request_url, headers=request_headers, allow_redirects=False, verify=False,
                                 timeout=req_timeout)
-        validate_response(host, str(ip), response)
+        validate_response(host, str(ip), response, prescan_results)
     except requests.exceptions.RequestException:
         logging.info(colored('[connection failed] {}'.format(ip), 'red'))
     except KeyboardInterrupt:
         pass
 
 
-def validate_response(host, ip, response):
+def validate_response(host, ip, response, prescan_results):
     if ok_string:
         validate_ok_string(host, ip, response)
-    elif prescan_results:
-        validate_response_length_delta(host, ip, response)
+    elif ip in prescan_results.keys():
+        validate_response_length_delta(host, ip, response, prescan_results)
     else:
         validate_not_empty_response(host, ip, response)
 
@@ -140,17 +143,17 @@ def validate_response(host, ip, response):
 def validate_ok_string(host, ip, response):
     valid = ok_string in response.text
     if valid:
-        logging.warn(colored('[ok string found] ip: {}, host: {}'.format(ip, host), 'green'))
+        logging.warning(colored('[ok string found] ip: {}, host: {}'.format(ip, host), 'green'))
         check_findings_options(host, ip, response)
     else:
         logging.info(colored('[ok string failed] ip: {}, host: {}'.format(ip, host), 'red'))
 
 
-def validate_response_length_delta(host, ip, response):
+def validate_response_length_delta(host, ip, response, prescan_results):
     delta = abs(len(response.text) - prescan_results[ip])
 
     if delta >= response_delta:
-        logging.warn(colored('[response delta {} found] ip: {}, host: {}'.format(delta, ip, host), 'green'))
+        logging.warning(colored('[response delta {} found] ip: {}, host: {}'.format(delta, ip, host), 'green'))
         check_findings_options(host, ip, response)
     else:
         logging.info(colored('[response delta failed] ip: {}, host: {}'.format(ip, host), 'red'))
@@ -158,7 +161,7 @@ def validate_response_length_delta(host, ip, response):
 
 def validate_not_empty_response(host, ip, response):
     if response.text:
-        logging.warn(
+        logging.warning(
             colored('[response length {} found] ip: {}, host: {}'.format(len(response.text), ip, host),
                     'green'))
         check_findings_options(host, ip, response)
@@ -182,7 +185,7 @@ def save_response_to_file(host, ip, response):
 
 def log_curl_command(host, ip):
     global protocol, path
-    logging.warn(colored('Command to repeat the previous request: '
+    logging.warning(colored('Command to repeat the previous request: '
                          'curl -k -H "Host: {}" "{}://{}{}"'.format(host, protocol, ip, path), 'green'))
 
 
@@ -213,8 +216,11 @@ def get_hosts(args):
     if args.host:
         return [args.host]
     else:
+        domain = args.domain
         hosts_records = args.hosts.read().splitlines()
-        return filter(lambda item: item.strip(), hosts_records)
+        domain_hosts_records = ['%s.%s' % (sub, domain) for sub in hosts_records]
+
+        return domain_hosts_records
 
 
 def set_logging_level(verbose):
@@ -225,25 +231,25 @@ def set_logging_level(verbose):
 
 
 def print_welcome_message():
-    logging.warn(colored('########################################################', 'green'))
-    logging.warn(colored('########### Vhost bruteforcer by D. Savitski ###########', 'green'))
-    logging.warn(colored('########################################################', 'green'))
+    logging.warning(colored('########################################################', 'green'))
+    logging.warning(colored('########### Vhost bruteforcer by D. Savitski ###########', 'green'))
+    logging.warning(colored('########################################################', 'green'))
 
 
 def print_start_scan_message(hosts, ip_range, args):
-    logging.warn(colored('########################################################', 'green'))
+    logging.warning(colored('########################################################', 'green'))
     ip_count = len(ip_range)
     hosts_count = len(hosts)
     total_requests = ip_count * hosts_count
-    logging.warn(colored(
-        'Starting scan. Ip addresses: {}, hosts: {}, totlal requests to make: {}'.format(ip_count, hosts_count,
+    logging.warning(colored(
+        'Starting scan. Ip addresses: {}, hosts: {}, total requests to make: {}'.format(ip_count, hosts_count,
                                                                                          total_requests),
         'green'))
     if hosts_count > 2 and not args.prescan:
-        logging.warn(colored(
+        logging.warning(colored(
             'Multiple vhosts for one ip detected. It\'s recommended to find live hosts first using --prescan option',
             'green'))
-    logging.warn(colored('########################################################', 'green'))
+    logging.warning(colored('########################################################', 'green'))
 
 
 def parse_arguments():
@@ -274,6 +280,7 @@ Increase default request timeout and show a curl command to repeat each found re
                             help='Host to use. This argument will be sent in the host header with each request')
     group_host.add_argument('--hosts', metavar='/hosts.txt', dest='hosts', type=argparse.FileType('r'),
                             help='A file with hosts list, ane host per line.')
+    parser.add_argument('--domain', metavar='example.com', dest='domain', help='Source domain for vhost brute')
 
     group_ip = parser.add_mutually_exclusive_group(required=True)
     group_ip.add_argument('-ip', '--ip-range', metavar='x.x.x.x/24', dest='ip_range',
