@@ -217,15 +217,22 @@ def get_hosts(args):
         return [args.host]
     else:
         domain = args.domain
+
         hosts_records = args.hosts.read().splitlines()
-        domain_hosts_records = ['%s.%s' % (sub, domain) for sub in hosts_records]
+
+        if domain is not None:
+            domain_hosts_records = ['%s.%s' % (sub, domain) for sub in hosts_records]
+        else:
+            domain_hosts_records = ['%s' % sub for sub in hosts_records]
+
+        print(domain_hosts_records[0])
 
         return domain_hosts_records
 
 
 def set_logging_level(verbose):
     if verbose:
-        logging.basicConfig(level=logging.INFO, format='%(message)s')
+        logging.basicConfig(level=logging.DEBUG, format='%(message)s')
     else:
         logging.basicConfig(level=logging.WARNING, format='%(message)s')
 
